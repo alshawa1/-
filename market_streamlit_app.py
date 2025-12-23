@@ -222,6 +222,7 @@ def main():
             ax.set_xlabel('Number of clusters')
             ax.set_ylabel('WCSS')
             st.pyplot(fig)
+            st.caption("ℹ️ **What does this graph mean?** This is the **Elbow Method**. It helps us decide the optimal number of clusters. We look for the 'elbow' or the point where the line starts bending significantly (usually where the drop becomes less steep). This suggests that 3 clusters is a good balance between simplicity and accuracy.")
         
         # Fixed K=3 as requested
         k = 3
