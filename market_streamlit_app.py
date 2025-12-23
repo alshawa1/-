@@ -2,7 +2,7 @@ import streamlit as st
 import os
 
 # Set page config for a wider layout
-st.set_page_config(page_title="Market Segmentation", layout="wide")
+st.set_page_config(page_title="Market Analysis", layout="wide")
 
 # Aesthetics
 st.markdown("""
@@ -15,19 +15,19 @@ st.markdown("""
 
 def main():
     try:
-        # Move imports INSIDE try-catch to handle import errors gracefully
+        # Move imports INSIDE try-catch
         import pandas as pd
         import numpy as np
         import datetime as dt
         from sklearn.preprocessing import StandardScaler
         from sklearn.cluster import KMeans
         import plotly.express as px
+        import matplotlib.pyplot as plt # Needed for Elbow
         
         # --- HELPER FUNCTIONS ---
         @st.cache_data
         def load_data_cached():
             import os
-            # Use absolute path
             file_path = os.path.join(os.path.dirname(__file__), 'online_retail_II.zip')
             
             if not os.path.exists(file_path):
@@ -37,7 +37,7 @@ def main():
                 # Read CSV
                 df = pd.read_csv(file_path, encoding='ISO-8859-1', compression='zip')
                 
-                # SAMPLE DATA immediately to 5000 rows
+                # SAMPLE DATA
                 if len(df) > 5000:
                     df = df.sample(n=5000, random_state=42)
                 
@@ -45,8 +45,8 @@ def main():
             except Exception as e:
                 return "ERROR", str(e)
 
-        # --- APP LOGIC ---
-        st.title("🛒 Market Segmentation & Analysis")
+        # --- APP HEADER ---
+        st.title("🛒 Retail Analytics Dashboard")
         
         status, result = load_data_cached()
         
@@ -61,21 +61,77 @@ def main():
 
         # --- DATA CLEANING ---
         st.sidebar.header("Data Processing")
-        df.dropna(subset=['Customer ID'], inplace=True)
-        if 'Invoice' in df.columns: df.rename(columns={'Invoice': 'InvoiceNo'}, inplace=True)
-        if 'ï»¿Invoice' in df.columns: df.rename(columns={'ï»¿Invoice': 'InvoiceNo'}, inplace=True)
-        df['InvoiceNo'] = df['InvoiceNo'].astype(str)
-        df = df[~df['InvoiceNo'].str.contains('C', na=False)]
-        df = df[(df['Quantity'] > 0) & (df['Price'] > 0)]
-        df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
-        df['Total_Price'] = df['Quantity'] * df['Price']
+        if df is not None and not df.empty:
+            df.dropna(subset=['Customer ID'], inplace=True)
+            if 'Invoice' in df.columns: df.rename(columns={'Invoice': 'InvoiceNo'}, inplace=True)
+            if 'ï»¿Invoice' in df.columns: df.rename(columns={'ï»¿Invoice': 'InvoiceNo'}, inplace=True)
+            df['InvoiceNo'] = df['InvoiceNo'].astype(str)
+            df = df[~df['InvoiceNo'].str.contains('C', na=False)]
+            df = df[(df['Quantity'] > 0) & (df['Price'] > 0)]
+            df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
+            df['Total_Price'] = df['Quantity'] * df['Price']
 
-        st.success(f"Data Loaded! Analyzing {len(df)} transactions.")
+            st.success(f"Dataloaded: {len(df)} transactions.")
+        else:
+            st.error("Dataframe is empty.")
+            return
 
-        # --- RFM ---
-        st.subheader("📊 RFM Analysis")
+        # ==========================================
+        # 1. MARKET BASKET ANALYSIS (FIRST)
+        # ==========================================
+        st.header("🛍️ Market Basket Analysis")
+        st.caption("Discover which products are frequently bought together.")
+        
+        try:
+            from mlxtend.frequent_patterns import apriori, association_rules
+        except ImportError:
+            st.warning("`mlxtend` library not found. Skipping Market Basket.")
+            
+        country = st.selectbox("Select Country", df['Country'].unique())
+        basket_df = df[df['Country'] == country]
+        
+        if len(basket_df) > 0:
+            # Top 50 Items Only for Speed
+            top_items = basket_df['Description'].value_counts().head(50).index
+            basket_df = basket_df[basket_df['Description'].isin(top_items)]
+            
+            basket = (basket_df
+                  .groupby(['InvoiceNo', 'Description'])['Quantity']
+                  .sum().unstack().fillna(0))
+            
+            basket_encoded = basket.apply(lambda x: x > 0)
+            
+            st.write(f"Analyzing top 50 items in {len(basket_encoded)} transactions for {country}...")
+            
+            min_support = st.slider("Minimum Support", 0.01, 0.5, 0.05)
+            frequent_itemsets = apriori(basket_encoded, min_support=min_support, use_colnames=True)
+            
+            if not frequent_itemsets.empty:
+                rules = association_rules(frequent_itemsets, metric="lift", min_threshold=1.0)
+                if not rules.empty:
+                    # Fix serialization
+                    rules['antecedents'] = rules['antecedents'].apply(lambda x: ', '.join(list(x)))
+                    rules['consequents'] = rules['consequents'].apply(lambda x: ', '.join(list(x)))
+                    
+                    st.write("### Top Association Rules")
+                    st.dataframe(rules[['antecedents', 'consequents', 'support', 'confidence', 'lift']].sort_values(by='lift', ascending=False).head(10))
+                else:
+                    st.info("No rules found. Try lowering support.")
+            else:
+                st.info("No frequent itemsets found.")
+        else:
+            st.warning("No data for this country.")
+
+        st.markdown("---")
+
+        # ==========================================
+        # 2. CUSTOMER SEGMENTATION (SECOND)
+        # ==========================================
+        st.header("👥 Customer Segmentation (RFM & K-Means)")
+        
+        # --- RFM CALCULATION ---
         if df.empty:
-            st.warning("No data left after cleaning.")
+            st.warning("No data.")
             return
 
         ref_date = df['InvoiceDate'].max() + dt.timedelta(days=1)
@@ -87,23 +143,39 @@ def main():
         rfm.columns = ['Customer ID', 'Recency', 'Frequency', 'Monetary']
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("Customers", rfm['Customer ID'].nunique())
+        c1.metric("Total Customers", rfm['Customer ID'].nunique())
         c2.metric("Avg Recency", f"{rfm['Recency'].mean():.0f} days")
         c3.metric("Avg Monetary", f"${rfm['Monetary'].mean():.0f}")
 
         # --- CLUSTERING ---
-        st.subheader("🤖 Clustering")
+        st.subheader("K-Means Clustering")
+        
         rfm_log = rfm[['Recency', 'Frequency', 'Monetary']].apply(np.log1p)
         scaler = StandardScaler()
         rfm_scaled = scaler.fit_transform(rfm_log)
         
-        k = st.sidebar.slider("Clusters (K)", 2, 8, 3)
+        # ELBOW PLOT (Requested)
+        if st.checkbox("Show Elbow Plot (Determine Optimal K)", value=True):
+            wcss = []
+            for i in range(1, 11):
+                kmeans_temp = KMeans(n_clusters=i, init='k-means++', random_state=42)
+                kmeans_temp.fit(rfm_scaled)
+                wcss.append(kmeans_temp.inertia_)
+            
+            fig, ax = plt.subplots(figsize=(8, 3))
+            ax.plot(range(1, 11), wcss, marker='o')
+            ax.set_title('Elbow Method')
+            ax.set_xlabel('Number of clusters')
+            ax.set_ylabel('WCSS')
+            st.pyplot(fig)
+        
+        k = st.slider("Select Number of Clusters (K)", 2, 8, 3)
         kmeans = KMeans(n_clusters=k, init='k-means++', random_state=42)
         rfm['Cluster'] = kmeans.fit_predict(rfm_scaled)
         
-        st.write(f"### Segmentation (K={k})")
+        st.write(f"### Segmentation Results (K={k})")
         
-        # 2D Plots only
+        # 2D Plots
         row1 = st.columns(2)
         with row1[0]:
             fig = px.scatter(rfm, x='Recency', y='Monetary', color='Cluster', title='Recency vs Monetary', log_x=True, log_y=True)
@@ -113,92 +185,32 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
 
         # --- CUSTOMER LOOKUP ---
-        st.write("### 🔎 Customer Profile Lookup")
+        st.subheader("🔎 Find Customer Segment")
         
-        # Show ID Examples (Since we are sampling, gaps exist!)
+        # Valid IDs for UX
         valid_ids = rfm['Customer ID'].unique()
         import random
-        random_examples = sorted(random.sample(list(valid_ids), min(5, len(valid_ids))))
-        st.write(f"ℹ️ **Try these valid Customer IDs:** {', '.join(map(str, map(int, random_examples)))}")
-        st.caption("(Note: Since we are using a sample of data for speed, not all IDs in the range exist.)")
+        # Handle case where sample is small
+        if len(valid_ids) > 0:
+            random_examples = sorted(random.sample(list(valid_ids), min(5, len(valid_ids))))
+            st.write(f"ℹ️ **Example valid IDs:** {', '.join(map(str, map(int, random_examples)))}")
         
-        customer_id_input = st.text_input("Enter Customer ID to find their segment:", placeholder=f"e.g., {int(random_examples[0])}")
+        customer_id_input = st.text_input("Enter Customer ID:")
         
         if customer_id_input:
-            # Ensure type matching (usually Customer ID is float/int in pandas, converted to string/int for searching)
-            # In data cleaning we did: df.dropna(subset=['Customer ID'], inplace=True)
-            # We didn't explicitly convert Customer ID to int/str in the cleaning block inside main (except implicit types).
-            # Let's try matching flexible types.
-            
-            # Create a flexible search column
-            rfm['CID_Str'] = rfm['Customer ID'].astype(str).str.split('.').str[0] # Handle 12345.0 case if float
-            
+            rfm['CID_Str'] = rfm['Customer ID'].astype(str).str.split('.').str[0]
             search_id = str(customer_id_input).strip()
             customer_data = rfm[rfm['CID_Str'] == search_id]
             
             if not customer_data.empty:
                 c_cluster = customer_data['Cluster'].values[0]
-                c_recency = customer_data['Recency'].values[0]
-                c_freq = customer_data['Frequency'].values[0]
-                c_monetary = customer_data['Monetary'].values[0]
-                
-                st.info(f"Customer **{search_id}** belongs to **Cluster {c_cluster}**")
-                
-                # Compare with Cluster Average
                 cluster_avg = rfm[rfm['Cluster'] == c_cluster][['Recency', 'Frequency', 'Monetary']].mean()
                 
-                col_a, col_b, col_c = st.columns(3)
-                col_a.metric("Recency (Days)", f"{c_recency:.0f}", delta=f"{c_recency - cluster_avg['Recency']:.1f} vs Avg", delta_color="inverse")
-                col_b.metric("Frequency", f"{c_freq}", delta=f"{c_freq - cluster_avg['Frequency']:.1f} vs Avg")
-                col_c.metric("Monetary", f"${c_monetary:.2f}", delta=f"{c_monetary - cluster_avg['Monetary']:.1f} vs Avg")
-                
-                st.write(f"**Cluster {c_cluster} Profile:**")
-                st.write("This segment is characterized by:")
+                st.success(f"Customer **{search_id}** is in **Cluster {c_cluster}**")
+                st.write("**Cluster Profile:**")
                 st.dataframe(cluster_avg.to_frame().T)
-                
             else:
-                st.error("Customer ID not found.")
-
-        # --- MARKET BASKET ---
-        st.markdown("---")
-        st.title("🛍️ Market Basket")
-        
-        try:
-            from mlxtend.frequent_patterns import apriori, association_rules
-        except ImportError:
-            st.warning("`mlxtend` library not found. Skipping Market Basket Analysis.")
-            return
-
-        country = st.selectbox("Country", df['Country'].unique())
-        basket_df = df[df['Country'] == country]
-        
-        if len(basket_df) > 0:
-            # Top 50 Items Only (Super Safe)
-            top_items = basket_df['Description'].value_counts().head(50).index
-            basket_df = basket_df[basket_df['Description'].isin(top_items)]
-            
-            basket = (basket_df
-                  .groupby(['InvoiceNo', 'Description'])['Quantity']
-                  .sum().unstack().fillna(0))
-            
-            basket_encoded = basket.apply(lambda x: x > 0)
-            
-            st.write(f"Analyzing top 50 items in {len(basket_encoded)} baskets...")
-            
-            min_support = st.slider("Min Support", 0.01, 0.5, 0.05)
-            frequent_itemsets = apriori(basket_encoded, min_support=min_support, use_colnames=True)
-            
-            if not frequent_itemsets.empty:
-                rules = association_rules(frequent_itemsets, metric="lift", min_threshold=1.0)
-                if not rules.empty:
-                    # Fix serialization
-                    rules['antecedents'] = rules['antecedents'].apply(lambda x: ', '.join(list(x)))
-                    rules['consequents'] = rules['consequents'].apply(lambda x: ', '.join(list(x)))
-                    st.dataframe(rules[['antecedents', 'consequents', 'lift']].head(10))
-                else:
-                    st.info("No rules found.")
-            else:
-                st.info("No frequent items found.")
+                st.error("Customer ID not found in this sample.")
 
     except Exception as e:
         st.error(f"❌ CRITICAL ERROR: {e}")
