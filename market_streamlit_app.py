@@ -223,14 +223,40 @@ def main():
             ax.set_ylabel('WCSS')
             st.pyplot(fig)
         
-        k = st.slider("Select Number of Clusters (K)", 2, 8, 3)
+        # Fixed K=3 as requested
+        k = 3
+        st.info(f"👉 Using **{k} Clusters** (Gold, Silver, Bronze) for standard segmentation.")
+        
         kmeans = KMeans(n_clusters=k, init='k-means++', random_state=42)
         rfm['Cluster'] = kmeans.fit_predict(rfm_scaled)
         
         st.write(f"### Segmentation Results (K={k})")
         
-        # 2D Plots
-        row1 = st.columns(2)
+        # Explain Logic
+        with st.expander("ℹ️ How to interpret these Clusters?"):
+            st.markdown("""
+            **The clustering is based on 3 Key Metrics (RFM):**
+            - **Recency (R):** Days since the last purchase (Lower is better).
+            - **Frequency (F):** How many times they bought (Higher is better).
+            - **Monetary (M):** Total money spent (Higher is better).
+            
+            **Typical Cluster Meanings (if K=3):**
+            - 🥇 **Gold/VIP:** Recent purchase, high frequency, high spending.
+            - 🥈 **Silver/Loyal:** Moderate frequency and spending, bought relatively recently.
+            - 🥉 **Bronze/At Risk:** Haven't bought in a long time (High Recency), low frequency, low spending.
+            
+            *Check the table below to see the average values for each cluster.*
+            """)
+        
+        # Summary Table
+        avg_df = rfm.groupby('Cluster')[['Recency', 'Frequency', 'Monetary', 'Customer ID']].agg({
+            'Recency': 'mean',
+            'Frequency': 'mean',
+            'Monetary': 'mean',
+            'Customer ID': 'count'
+        }).sort_values(by='Monetary', ascending=True) 
+        
+        st.dataframe(avg_df.style.background_gradient(cmap='Greens', subset=['Frequency', 'Monetary']).background_gradient(cmap='Reds_r', subset=['Recency']))
         with row1[0]:
             fig = px.scatter(rfm, x='Recency', y='Monetary', color='Cluster', title='Recency vs Monetary', log_x=True, log_y=True)
             st.plotly_chart(fig, use_container_width=True)
