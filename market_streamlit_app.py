@@ -215,35 +215,67 @@ def main():
             kmeans = KMeans(n_clusters=k, init='k-means++', random_state=42)
             rfm['Cluster'] = kmeans.fit_predict(rfm_scaled)
             
+            # --- MAP CLUSTERS TO LABELS (Gold, Silver, Bronze) ---
+            # Sort clusters by average Monetary value to ensure consistent labeling
+            cluster_centers = rfm.groupby('Cluster')['Monetary'].mean().sort_values()
+            
+            # Create a mapping: lowest -> Bronze, middle -> Silver, highest -> Gold
+            cluster_mapping = {}
+            labels = ["🥉 Bronze", "🥈 Silver", "🥇 Gold"]
+            
+            for i, cluster_id in enumerate(cluster_centers.index):
+                cluster_mapping[cluster_id] = labels[i]
+            
+            rfm['Cluster Label'] = rfm['Cluster'].map(cluster_mapping)
+            
             st.write(f"### Segmentation Results")
             
             # Explain Logic
             with st.expander("ℹ️ Cluster Interpretation Guide"):
                 st.markdown("""
                 **Based on RFM (Recency, Frequency, Monetary):**
-                - 🥇 **Gold:** Recent, Frequent, High Spender.
-                - 🥈 **Silver:** Average behavior.
-                - 🥉 **Bronze:** Inactive, Low Spender.
+                - 🥇 **Gold:** Recent purchase, High Frequency, High Spender.
+                - 🥈 **Silver:** Average behavior, potential to become Gold.
+                - 🥉 **Bronze:** Inactive for a while, Low Frequency, Low Spender.
                 """)
             
             # Summary Table
-            avg_df = rfm.groupby('Cluster')[['Recency', 'Frequency', 'Monetary', 'Customer ID']].agg({
+            avg_df = rfm.groupby('Cluster Label')[['Recency', 'Frequency', 'Monetary', 'Customer ID']].agg({
                 'Recency': 'mean',
                 'Frequency': 'mean',
                 'Monetary': 'mean',
                 'Customer ID': 'count'
-            }).sort_values(by='Monetary', ascending=True) 
+            }).sort_values(by='Monetary', ascending=False) # Gold on top
             
             st.dataframe(avg_df.style.background_gradient(cmap='Greens', subset=['Frequency', 'Monetary']).background_gradient(cmap='Reds_r', subset=['Recency']))
             
-            # 2D Plots
+            # 2D Plots with Labels and Explanations
             row1 = st.columns(2)
+            
+            # Define specific colors
+            color_map = {
+                "🥇 Gold": "gold",
+                "🥈 Silver": "silver",
+                "🥉 Bronze": "brown"
+            }
+            
             with row1[0]:
-                fig = px.scatter(rfm, x='Recency', y='Monetary', color='Cluster', title='Recency vs Monetary', log_x=True, log_y=True)
+                st.subheader("Recency vs Monetary")
+                fig = px.scatter(rfm, x='Recency', y='Monetary', color='Cluster Label', 
+                                 title='Recency vs Monetary', log_x=True, log_y=True,
+                                 color_discrete_map=color_map,
+                                 category_orders={"Cluster Label": ["🥇 Gold", "🥈 Silver", "🥉 Bronze"]})
                 st.plotly_chart(fig, use_container_width=True)
+                st.info("💡 **Interpretation:** **Gold** customers are in the *top-left* (High Money, Low Recency days). **Bronze** customers are *bottom-right* (Low Money, High Recency).")
+
             with row1[1]:
-                fig = px.scatter(rfm, x='Frequency', y='Monetary', color='Cluster', title='Frequency vs Monetary', log_x=True, log_y=True)
+                st.subheader("Frequency vs Monetary")
+                fig = px.scatter(rfm, x='Frequency', y='Monetary', color='Cluster Label', 
+                                 title='Frequency vs Monetary', log_x=True, log_y=True,
+                                 color_discrete_map=color_map,
+                                 category_orders={"Cluster Label": ["🥇 Gold", "🥈 Silver", "🥉 Bronze"]})
                 st.plotly_chart(fig, use_container_width=True)
+                st.info("💡 **Interpretation:** **Gold** customers are in the *top-right* (High Frequency, High Money). They buy often and spend a lot.")
 
             # --- CUSTOMER LOOKUP ---
             st.subheader("🔎 Find Customer Segment")
