@@ -114,7 +114,13 @@ def main():
 
         # --- CUSTOMER LOOKUP ---
         st.write("### 🔎 Customer Profile Lookup")
-        customer_id_input = st.text_input("Enter Customer ID to find their segment:", "")
+        
+        # Show ID Range
+        min_id = int(rfm['Customer ID'].min())
+        max_id = int(rfm['Customer ID'].max())
+        st.write(f"ℹ️ **Available Customer IDs range from {min_id} to {max_id}** (in current sample)")
+        
+        customer_id_input = st.text_input("Enter Customer ID to find their segment:", placeholder=f"e.g., {min_id}")
         
         if customer_id_input:
             # Ensure type matching (usually Customer ID is float/int in pandas, converted to string/int for searching)
