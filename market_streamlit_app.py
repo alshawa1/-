@@ -37,9 +37,18 @@ def main():
                 # Read CSV
                 df = pd.read_csv(file_path, encoding='ISO-8859-1', compression='zip')
                 
-                # SAMPLE DATA
-                if len(df) > 5000:
-                    df = df.sample(n=5000, random_state=42)
+                # SAMPLE DATA INTELLIGENTLY
+                # Critical: We must sample by INVOICE, not by row, to preserve market basket associations.
+                # If we pick random rows, we break the "baskets".
+                unique_invoices = df['Invoice'].unique() if 'Invoice' in df.columns else df['InvoiceNo'].unique() if 'InvoiceNo' in df.columns else df.iloc[:,0].unique()
+                
+                if len(unique_invoices) > 2000:
+                    sampled_invoices = np.random.choice(unique_invoices, 2000, replace=False)
+                    # Filter df to only these invoices
+                    if 'Invoice' in df.columns:
+                        df = df[df['Invoice'].isin(sampled_invoices)]
+                    elif 'InvoiceNo' in df.columns:
+                        df = df[df['InvoiceNo'].isin(sampled_invoices)]
                 
                 return "SUCCESS", df
             except Exception as e:
