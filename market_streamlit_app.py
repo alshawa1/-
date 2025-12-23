@@ -257,6 +257,9 @@ def main():
         }).sort_values(by='Monetary', ascending=True) 
         
         st.dataframe(avg_df.style.background_gradient(cmap='Greens', subset=['Frequency', 'Monetary']).background_gradient(cmap='Reds_r', subset=['Recency']))
+        
+        # 2D Plots
+        row1 = st.columns(2)
         with row1[0]:
             fig = px.scatter(rfm, x='Recency', y='Monetary', color='Cluster', title='Recency vs Monetary', log_x=True, log_y=True)
             st.plotly_chart(fig, use_container_width=True)
