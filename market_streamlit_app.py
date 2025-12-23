@@ -103,17 +103,62 @@ def main():
             
             st.write(f"Analyzing top 50 items in {len(basket_encoded)} transactions for {country}...")
             
-            min_support = st.slider("Minimum Support", 0.01, 0.5, 0.05)
+            min_support = st.slider("Minimum Support", 0.01, 0.5, 0.01)
             frequent_itemsets = apriori(basket_encoded, min_support=min_support, use_colnames=True)
             
             if not frequent_itemsets.empty:
                 rules = association_rules(frequent_itemsets, metric="lift", min_threshold=1.0)
                 if not rules.empty:
-                    # Fix serialization
+                    # --- NEW: PRODUCT RECOMMENDER ---
+                    st.subheader("💡 Product Recommender")
+                    st.caption(f"Select a product from the list (only showing top 50 items) to see what is sold with it.")
+                    
+                    # Extract unique antecedents (items on LHS)
+                    # Note: rules['antecedents'] are frozensets. We need to handle this BEFORE converting to strings for display.
+                    
+                    # Store original rules for logic
+                    rules_logic = rules.copy()
+                    
+                    # Convert to string for display/table
                     rules['antecedents'] = rules['antecedents'].apply(lambda x: ', '.join(list(x)))
                     rules['consequents'] = rules['consequents'].apply(lambda x: ', '.join(list(x)))
                     
-                    st.write("### Top Association Rules")
+                    # Get list of unique single items found in antecedents
+                    all_items = set()
+                    for itemset in rules_logic['antecedents']:
+                        all_items.update(itemset)
+                    
+                    sorted_items = sorted(list(all_items))
+                    
+                    if sorted_items:
+                        selected_product = st.selectbox("I am buying...", sorted_items)
+                        
+                        # Filter for rules where selected product is in antecedent
+                        # Using frozenset logic
+                        recommendations = rules_logic[rules_logic['antecedents'].apply(lambda x: selected_product in x)]
+                        
+                        if not recommendations.empty:
+                            # Get best recommendation by confidence
+                            top_rec = recommendations.sort_values(by='confidence', ascending=False).iloc[0]
+                            rec_prod = ', '.join(list(top_rec['consequents']))
+                            conf = top_rec['confidence']
+                            lift = top_rec['lift']
+                            
+                            st.success(f"🚀 Best match: **{rec_prod}**")
+                            st.metric("Probability (Confidence)", f"{conf:.1%}", f"Lift: {lift:.2f}")
+                            
+                            with st.expander("See all recommendations for this product"):
+                                # Format for display
+                                recommendations_display = recommendations.copy()
+                                recommendations_display['consequents'] = recommendations_display['consequents'].apply(lambda x: ', '.join(list(x)))
+                                st.dataframe(recommendations_display[['consequents', 'confidence', 'lift']].sort_values(by='confidence', ascending=False))
+                        else:
+                            st.warning(f"No strong rules found starting with {selected_product}.")
+                    else:
+                        st.warning("No generated rules involve single items.")
+
+                    st.markdown("---")
+                    st.write("### All Association Rules")
                     st.dataframe(rules[['antecedents', 'consequents', 'support', 'confidence', 'lift']].sort_values(by='lift', ascending=False).head(10))
                 else:
                     st.info("No rules found. Try lowering support.")
