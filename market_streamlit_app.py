@@ -115,12 +115,14 @@ def main():
         # --- CUSTOMER LOOKUP ---
         st.write("### 🔎 Customer Profile Lookup")
         
-        # Show ID Range
-        min_id = int(rfm['Customer ID'].min())
-        max_id = int(rfm['Customer ID'].max())
-        st.write(f"ℹ️ **Available Customer IDs range from {min_id} to {max_id}** (in current sample)")
+        # Show ID Examples (Since we are sampling, gaps exist!)
+        valid_ids = rfm['Customer ID'].unique()
+        import random
+        random_examples = sorted(random.sample(list(valid_ids), min(5, len(valid_ids))))
+        st.write(f"ℹ️ **Try these valid Customer IDs:** {', '.join(map(str, map(int, random_examples)))}")
+        st.caption("(Note: Since we are using a sample of data for speed, not all IDs in the range exist.)")
         
-        customer_id_input = st.text_input("Enter Customer ID to find their segment:", placeholder=f"e.g., {min_id}")
+        customer_id_input = st.text_input("Enter Customer ID to find their segment:", placeholder=f"e.g., {int(random_examples[0])}")
         
         if customer_id_input:
             # Ensure type matching (usually Customer ID is float/int in pandas, converted to string/int for searching)
